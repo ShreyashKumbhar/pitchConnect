@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Error Checker</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      padding: 20px;
+    }
+    #errorLog {
+      background-color: #f8f8f8;
+      border: 1px solid #ddd;
+      padding: 15px;
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .error {
+      color: red;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 8px;
+    }
+    .warn {
+      color: orange;
+    }
+    h2 {
+      margin-top: 30px;
+    }
+  </style>
+</head>
+<body>
+  <h1>React App Error Checker</h1>
+  <p>This page captures JavaScript errors that might be occurring in your React application.</p>
+  
+  <div>
+    <button onclick="checkMainApp()">Check Main App</button>
+    <button onclick="clearLog()">Clear Log</button>
+  </div>
+  
+  <h2>Error Log:</h2>
+  <div id="errorLog">
+    <p>No errors logged yet. Click "Check Main App" to begin.</p>
+  </div>
+
+  <script>
+    const errorLog = document.getElementById('errorLog');
+    
+    function logMessage(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = type;
+      entry.textContent = message;
+      errorLog.appendChild(entry);
+    }
+    
+    function clearLog() {
+      errorLog.innerHTML = '';
+    }
+    
+    function checkMainApp() {
+      clearLog();
+      logMessage('Checking for errors...', 'info');
+      
+      fetch('/')
+        .then(response => {
+          logMessage(`Main page loaded with status: ${response.status}`, 'info');
+          return response.text();
+        })
+        .then(html => {
+          const scriptTags = html.match(/<script\b[^>]*>([\s\S]*?)<\/script>/gi) || [];
+          logMessage(`Found ${scriptTags.length} script tags`, 'info');
+          
+          // Extract script sources
+          const scriptSrcs = [];
+          const scriptTagRegex = /<script\b[^>]*\bsrc="([^"]+)"[^>]*>/gi;
+          let match;
+          while (match = scriptTagRegex.exec(html)) {
+            scriptSrcs.push(match[1]);
+          }
+          
+          if (scriptSrcs.length > 0) {
+            logMessage('Script sources found:', 'info');
+            scriptSrcs.forEach(src => {
+              logMessage(`- ${src}`, 'info');
+            });
+          } else {
+            logMessage('No external script sources found', 'warn');
+          }
+          
+          // Check for React errors
+          if (html.includes('You might have mismatching versions of React and the renderer')) {
+            logMessage('ERROR: Mismatching versions of React and renderer detected', 'error');
+          }
+          
+          if (html.includes('Uncaught')) {
+            logMessage('ERROR: Uncaught exceptions detected in the HTML', 'error');
+            
+            // Try to extract error messages
+            const errorRegex = /Uncaught\s+([^:]+):\s+(.+?)(?=<\/)/g;
+            let errorMatch;
+            while (errorMatch = errorRegex.exec(html)) {
+              logMessage(`${errorMatch[1]}: ${errorMatch[2]}`, 'error');
+            }
+          }
+          
+          // Check for specific React errors
+          checkReactErrors();
+        })
+        .catch(error => {
+          logMessage(`Error fetching main page: ${error.message}`, 'error');
+        });
+    }
+    
+    function checkReactErrors() {
+      fetch('/manifest.json')
+        .then(response => {
+          if (response.ok) {
+            return response.json();
+          }
+          throw new Error('Failed to load manifest.json');
+        })
+        .then(data => {
+          logMessage('Successfully loaded manifest.json', 'info');
+        })
+        .catch(error => {
+          logMessage(`Error with manifest: ${error.message}`, 'warn');
+        });
+        
+      // Try to evaluate React version
+      try {
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+        iframe.contentDocument.write(`
+          <script>
+            window.onerror = function(message, source, lineno, colno, error) {
+              window.parent.postMessage({
+                type: 'error',
+                message: message,
+                source: source,
+                line: lineno
+              }, '*');
+              return true;
+            };
+            
+            // Try to access React
+            try {
+              const reactElement = document.createElement('div');
+              reactElement.id = 'react-test';
+              document.body.appendChild(reactElement);
+            } catch (e) {
+              window.parent.postMessage({
+                type: 'error',
+                message: e.message,
+                name: e.name
+              }, '*');
+            }
+          </script>
+        `);
+        
+        window.addEventListener('message', function(event) {
+          if (event.data && event.data.type === 'error') {
+            logMessage(`React Error: ${event.data.message}`, 'error');
+          }
+        });
+        
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 2000);
+      } catch (e) {
+        logMessage(`Error checking React: ${e.message}`, 'error');
+      }
+    }
+    
+    // Run check on page load
+    window.addEventListener('load', checkMainApp);
+  </script>
+</body>
+</html> 
